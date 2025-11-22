@@ -1,16 +1,14 @@
 #!/usr/bin/env python3
-"""Lightweight Giphy wall server with SQLite storage and infinite scroll."""
+"""Flask-powered Giphy wall with SQLite storage and lightweight frontend."""
 
 from __future__ import annotations
 
-import json
+import random
 import re
 import sqlite3
-import random
-from http import HTTPStatus
-from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse, unquote
+
+from flask import Flask, jsonify, render_template_string, request, send_from_directory
 
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = BASE_DIR / "giphywall.db"
@@ -45,26 +43,20 @@ def extract_giphy_id(raw_url: str) -> str | None:
     if not raw_url:
         return None
 
-    parsed = urlparse(raw_url)
+    parsed = re.sub(r"^https?://", "", raw_url)
+    parsed_parts = raw_url.split("/")
     slug = ""
 
-    if parsed.netloc.endswith("giphy.com"):
-        # Examples: /gifs/fun-cat-abc123, /media/abc123/giphy.gif
-        path_parts = [p for p in parsed.path.split("/") if p]
-        if path_parts:
-            slug = path_parts[-1]
-    elif "giphy.com" in parsed.netloc:
-        match = re.search(r"/media/([^/]+)/", parsed.path)
-        if match:
-            slug = match.group(1)
+    if "giphy.com" in raw_url:
+        parts = [p for p in parsed_parts if p]
+        if parts:
+            slug = parts[-1]
 
     if not slug:
-        # Allow directly entering the ID
         if re.fullmatch(r"[A-Za-z0-9]+", raw_url):
             return raw_url
-        # Last path chunk when the URL is not on giphy.com but still formatted similarly.
-        if parsed.path:
-            candidate = parsed.path.rstrip("/").split("/")[-1]
+        if parsed_parts:
+            candidate = parsed_parts[-1].split("?")[0]
             if re.fullmatch(r"[A-Za-z0-9]+", candidate):
                 slug = candidate
 
@@ -207,9 +199,9 @@ INDEX_HTML = """<!doctype html>
         <p class="subtitle">so scroll. very gif. wow delight.</p>
         <div class="music-bar">
           <div class="music-buttons">
-            <button type="button" class="music-btn" data-track="chiasing">wow chill</button>
+            <button type="button" class="music-btn" data-track="chasing">wow chill</button>
             <button type="button" class="music-btn" data-track="goofy">such goofy</button>
-            <button type="button" class="music-btn" data-track="swing">very santa</button>
+            <button type="button" class="music-btn" data-track="swing">very swing</button>
           </div>
           <div class="vinyl" aria-hidden="true">
             <img src="/static/vinyl.png" alt="" class="vinyl-img">
@@ -246,8 +238,6 @@ INDEX_HTML = """<!doctype html>
     const limit = 18;
     let isLoading = false;
     let reachedEnd = false;
-
-    const dogeLines = [];
 
     const tracks = {
       chasing: {
@@ -437,157 +427,55 @@ INDEX_HTML = """<!doctype html>
 """
 
 
-class GiphyWallHandler(BaseHTTPRequestHandler):
-    server_version = "GiphyWall/1.0"
+def create_app() -> Flask:
+    app = Flask(__name__, static_folder=str(STATIC_DIR), static_url_path="/static")
 
-    def do_GET(self):
-        parsed = urlparse(self.path)
-        path = parsed.path
-        if path == "/":
-            self._respond_html(INDEX_HTML)
-            return
-        if path == "/api/giphies":
-            self._handle_list(parsed)
-            return
-        if path.startswith("/static/"):
-            self._serve_file(STATIC_DIR, path.replace("/static/", "", 1))
-            return
-        if path.startswith("/music/"):
-            self._serve_file(MUSIC_DIR, path.replace("/music/", "", 1))
-            return
-        self.send_error(HTTPStatus.NOT_FOUND, "wow lost")
+    @app.before_request
+    def _init_db():
+        ensure_db()
 
-    def do_POST(self):
-        parsed = urlparse(self.path)
-        if parsed.path != "/api/giphies":
-            self.send_error(HTTPStatus.NOT_FOUND, "wow lost")
-            return
+    @app.route("/")
+    def index():
+        return render_template_string(INDEX_HTML)
 
-        length = int(self.headers.get("Content-Length", "0") or 0)
-        if length <= 0:
-            self._json_response(HTTPStatus.BAD_REQUEST, {"message": "much empty body"})
-            return
+    @app.route("/api/giphies", methods=["GET", "POST"])
+    def giphies():
+        if request.method == "GET":
+            try:
+                limit = int(request.args.get("limit", 18))
+                offset = int(request.args.get("offset", 0))
+            except ValueError:
+                return jsonify({"message": "bad paging"}), 400
+            limit = max(1, min(limit, 50))
+            offset = max(0, offset)
+            items = fetch_giphies(limit, offset)
+            return jsonify({"items": items})
 
-        try:
-            payload = json.loads(self.rfile.read(length))
-        except json.JSONDecodeError:
-            self._json_response(HTTPStatus.BAD_REQUEST, {"message": "such invalid json"})
-            return
-
-        url = str(payload.get("url", "")).strip()
+        data = request.get_json(force=True, silent=True) or {}
+        url = str(data.get("url", "")).strip()
         if not url:
-            self._json_response(HTTPStatus.BAD_REQUEST, {"message": "such need url"})
-            return
-
+            return jsonify({"message": "such need url"}), 400
         giphy_id = extract_giphy_id(url)
         if not giphy_id:
-            self._json_response(HTTPStatus.BAD_REQUEST, {"message": "no giphy id found"})
-            return
-
+            return jsonify({"message": "no giphy id found"}), 400
         item = insert_giphy(giphy_id, url)
-        self._json_response(HTTPStatus.CREATED, item)
+        return jsonify(item), 201
 
-    def do_DELETE(self):
-        parsed = urlparse(self.path)
-        parts = [p for p in parsed.path.split("/") if p]
-        if len(parts) == 3 and parts[0] == "api" and parts[1] == "giphies":
-            try:
-                gid = int(parts[2])
-            except ValueError:
-                self._json_response(HTTPStatus.BAD_REQUEST, {"message": "bad id"})
-                return
-            deleted = delete_giphy(gid)
-            if not deleted:
-                self._json_response(HTTPStatus.NOT_FOUND, {"message": "no gif wow"})
-            else:
-                self._json_response(HTTPStatus.NO_CONTENT, {})
-            return
-        self.send_error(HTTPStatus.NOT_FOUND, "wow lost")
+    @app.route("/api/giphies/<int:item_id>", methods=["DELETE"])
+    def remove_giphy(item_id: int):
+        if delete_giphy(item_id):
+            return "", 204
+        return jsonify({"message": "no gif wow"}), 404
 
-    def log_message(self, fmt, *args):
-        # Keep logs tidy for CLI usage.
-        return
+    @app.route("/music/<path:filename>")
+    def music(filename: str):
+        return send_from_directory(MUSIC_DIR, filename)
 
-    def _handle_list(self, parsed):
-        params = parse_qs(parsed.query)
-        try:
-            limit = int(params.get("limit", [18])[0])
-            offset = int(params.get("offset", [0])[0])
-        except ValueError:
-            self._json_response(HTTPStatus.BAD_REQUEST, {"message": "bad paging"})
-            return
-
-        limit = max(1, min(limit, 50))
-        offset = max(0, offset)
-        items = fetch_giphies(limit, offset)
-        self._json_response(HTTPStatus.OK, {"items": items})
-
-    def _serve_file(self, base_dir: Path, rel_path: str):
-        rel_path = unquote(rel_path)
-        target = (base_dir / rel_path).resolve()
-        try:
-            target.relative_to(base_dir)
-        except ValueError:
-            self.send_error(HTTPStatus.NOT_FOUND, "nope")
-            return
-
-        if not target.exists():
-            self.send_error(HTTPStatus.NOT_FOUND, "wow nothing")
-            return
-
-        if target.suffix in {".css"}:
-            data = target.read_text(encoding="utf-8").encode("utf-8")
-            content_type = "text/css; charset=utf-8"
-        elif target.suffix in {".jpg", ".jpeg"}:
-            data = target.read_bytes()
-            content_type = "image/jpeg"
-        elif target.suffix in {".png"}:
-            data = target.read_bytes()
-            content_type = "image/png"
-        elif target.suffix in {".gif"}:
-            data = target.read_bytes()
-            content_type = "image/gif"
-        elif target.suffix in {".mp3"}:
-            data = target.read_bytes()
-            content_type = "audio/mpeg"
-        else:
-            data = target.read_bytes()
-            content_type = "application/octet-stream"
-
-        self.send_response(HTTPStatus.OK)
-        self.send_header("Content-Type", content_type)
-        self.send_header("Content-Length", str(len(data)))
-        self.end_headers()
-        self.wfile.write(data)
-
-    def _respond_html(self, body: str):
-        encoded = body.encode("utf-8")
-        self.send_response(HTTPStatus.OK)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
-        self.send_header("Content-Length", str(len(encoded)))
-        self.end_headers()
-        self.wfile.write(encoded)
-
-    def _json_response(self, status: HTTPStatus, payload: dict):
-        body = json.dumps(payload).encode("utf-8")
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
+    return app
 
 
-def run(host: str = "0.0.0.0", port: int = 8000):
-    ensure_db()
-    server = HTTPServer((host, port), GiphyWallHandler)
-    print(f"such server wow: http://{host}:{port}")
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        print("\nstopping wow")
-    finally:
-        server.server_close()
+app = create_app()
 
 
 if __name__ == "__main__":
-    run()
+    app.run(host="0.0.0.0", port=8000, debug=True)
