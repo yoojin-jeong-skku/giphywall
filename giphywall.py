@@ -350,10 +350,13 @@ INDEX_HTML = """<!doctype html>
       fetchGiphies();
     };
 
+    const getScrollTop = () => Math.max(window.scrollY, document.documentElement.scrollTop || 0);
+
     const updateHeroCompact = () => {
       if (!hero) return;
-      const shouldCompact = mobileCompactMq.matches && window.scrollY > 32;
+      const shouldCompact = mobileCompactMq.matches && getScrollTop() > 8;
       hero.classList.toggle('compact', shouldCompact);
+      document.body.classList.toggle('mobile-compact', shouldCompact);
     };
 
     form.addEventListener('submit', async (e) => {
@@ -420,6 +423,7 @@ INDEX_HTML = """<!doctype html>
       mobileCompactMq.addListener(updateHeroCompact);
     }
     window.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('touchmove', updateHeroCompact, { passive: true });
     updateHeroCompact();
     makeSnow();
     makeSeasonalBarks();

@@ -378,36 +378,50 @@ button:active {
     top: 0;
     padding: 14px 12px;
     z-index: 5;
+    transition: padding 0.18s ease, gap 0.18s ease, background 0.18s ease, border 0.18s ease;
   }
 
+  .mobile-compact .hero,
   .hero.compact {
-    grid-template-columns: 1fr;
-    gap: 10px;
-    padding: 10px;
+    grid-template-columns: 1fr auto;
+    gap: 8px;
+    padding: 8px 10px;
     border-radius: 14px;
-    background: rgba(5, 6, 7, 0.92);
+    background: rgba(5, 6, 7, 0.96);
     border: 1px solid rgba(255, 255, 255, 0.08);
     box-shadow: var(--shadow);
+    align-items: center;
   }
 
+  .mobile-compact .hero > :not(.add-form):not(.status),
   .hero.compact > :not(.add-form):not(.status) {
     display: none;
   }
 
+  .mobile-compact .add-form,
   .hero.compact .add-form {
     grid-template-columns: 1fr auto;
     gap: 8px;
+    margin: 0;
   }
 
+  .mobile-compact .hero input,
+  .hero.compact input {
+    padding: 10px 12px;
+    font-size: 15px;
+  }
+
+  .mobile-compact .hero button,
   .hero.compact button {
     width: auto;
     padding: 7px 12px;
   }
 
+  .mobile-compact .hero .status,
   .hero.compact .status {
     min-height: 0;
     font-size: 13px;
-    margin-top: 0;
+    margin: 0;
   }
 
   .page {
