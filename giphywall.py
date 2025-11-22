@@ -417,10 +417,7 @@ INDEX_HTML = """<!doctype html>
 
 def create_app() -> Flask:
     app = Flask(__name__, static_folder=str(STATIC_DIR), static_url_path="/static")
-
-    @app.before_request
-    def _init_db():
-        ensure_db()
+    ensure_db()
 
     @app.route("/")
     def index():
