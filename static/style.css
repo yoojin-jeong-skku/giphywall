@@ -223,8 +223,8 @@ input:focus {
 button {
   border: none;
   border-radius: 16px;
-  padding: 10px 14px;
-  font-size: 16px;
+  padding: 7px 12px;
+  font-size: 15px;
   font-weight: 800;
   cursor: pointer;
   color: #2b1a00;
@@ -389,7 +389,7 @@ button:active {
 
   button {
     width: 100%;
-    padding: 9px 12px;
-    font-size: 15px;
+    padding: 6px 10px;
+    font-size: 14px;
   }
 }
