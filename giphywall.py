@@ -5,37 +5,36 @@ from __future__ import annotations
 
 import random
 import re
-import sqlite3
 from pathlib import Path
 
+import psycopg2
+from psycopg2.extras import RealDictCursor
 from flask import Flask, jsonify, render_template_string, request, send_from_directory
 
 BASE_DIR = Path(__file__).resolve().parent
-DB_PATH = BASE_DIR / "giphywall.db"
+DB_URL = "postgresql://giphywall_user:VHot1umtmoRUIR35j2X5cDnILR9Luuk2@dpg-d4ghl94hg0os73fq5jlg-a/giphywall"
 STATIC_DIR = BASE_DIR / "static"
 MUSIC_DIR = BASE_DIR / "music"
 
 
+def get_conn():
+    return psycopg2.connect(DB_URL, cursor_factory=RealDictCursor)
+
+
 def ensure_db() -> None:
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS giphies (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            giphy_id TEXT NOT NULL,
-            giphy_url TEXT NOT NULL,
-            commentary TEXT DEFAULT '',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS giphies (
+                id SERIAL PRIMARY KEY,
+                giphy_id TEXT NOT NULL,
+                giphy_url TEXT NOT NULL,
+                commentary TEXT DEFAULT '',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
         )
-        """
-    )
-    try:
-        conn.execute("ALTER TABLE giphies ADD COLUMN commentary TEXT DEFAULT ''")
-    except sqlite3.OperationalError:
-        # Column already exists
-        pass
-    conn.commit()
-    conn.close()
+        conn.commit()
 
 
 def extract_giphy_id(raw_url: str) -> str | None:
@@ -105,71 +104,60 @@ def generate_commentary(url: str, giphy_id: str) -> str:
 
 
 def fetch_giphies(limit: int, offset: int):
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    rows = conn.execute(
-        """
-        SELECT id, giphy_id, giphy_url, commentary, created_at
-        FROM giphies
-        ORDER BY datetime(created_at) DESC, id DESC
-        LIMIT ? OFFSET ?
-        """,
-        (limit, offset),
-    ).fetchall()
-    conn.close()
-    items = []
-    for row in rows:
-        items.append(
-            {
-                "id": row["id"],
-                "giphy_id": row["giphy_id"],
-                "giphy_url": row["giphy_url"],
-                "commentary": row["commentary"] or "",
-                "preview_url": make_preview_url(row["giphy_id"], row["giphy_url"]),
-                "created_at": row["created_at"],
-            }
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT id, giphy_id, giphy_url, commentary, created_at
+            FROM giphies
+            ORDER BY created_at DESC, id DESC
+            LIMIT %s OFFSET %s
+            """,
+            (limit, offset),
         )
-    return items
+        rows = cur.fetchall()
+        items = []
+        for row in rows:
+            items.append(
+                {
+                    "id": row["id"],
+                    "giphy_id": row["giphy_id"],
+                    "giphy_url": row["giphy_url"],
+                    "commentary": row["commentary"] or "",
+                    "preview_url": make_preview_url(row["giphy_id"], row["giphy_url"]),
+                    "created_at": row["created_at"],
+                }
+            )
+        return items
 
 
 def insert_giphy(giphy_id: str, giphy_url: str) -> dict:
     commentary = generate_commentary(giphy_url, giphy_id)
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute(
-        """
-        INSERT INTO giphies (giphy_id, giphy_url, commentary) VALUES (?, ?, ?)
-        """,
-        (giphy_id, giphy_url, commentary),
-    )
-    new_id = cur.lastrowid
-    conn.commit()
-    row = cur.execute(
-        """
-        SELECT id, giphy_id, giphy_url, commentary, created_at
-        FROM giphies WHERE id = ?
-        """,
-        (new_id,),
-    ).fetchone()
-    conn.close()
-    return {
-        "id": row[0],
-        "giphy_id": row[1],
-        "giphy_url": row[2],
-        "commentary": row[3] or "",
-        "preview_url": make_preview_url(row[1], row[2]),
-        "created_at": row[4],
-    }
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO giphies (giphy_id, giphy_url, commentary)
+            VALUES (%s, %s, %s)
+            RETURNING id, giphy_id, giphy_url, commentary, created_at
+            """,
+            (giphy_id, giphy_url, commentary),
+        )
+        row = cur.fetchone()
+        conn.commit()
+        return {
+            "id": row["id"],
+            "giphy_id": row["giphy_id"],
+            "giphy_url": row["giphy_url"],
+            "commentary": row["commentary"] or "",
+            "preview_url": make_preview_url(row["giphy_id"], row["giphy_url"]),
+            "created_at": row["created_at"],
+        }
 
 
 def delete_giphy(giphy_id: int) -> bool:
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute("DELETE FROM giphies WHERE id = ?", (giphy_id,))
-    conn.commit()
-    deleted = cur.rowcount > 0
-    conn.close()
-    return deleted
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM giphies WHERE id = %s", (giphy_id,))
+        conn.commit()
+        return cur.rowcount > 0
 
 
 INDEX_HTML = """<!doctype html>
