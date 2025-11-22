@@ -223,7 +223,7 @@ input:focus {
 button {
   border: none;
   border-radius: 16px;
-  padding: 12px 18px;
+  padding: 10px 14px;
   font-size: 16px;
   font-weight: 800;
   cursor: pointer;
@@ -379,11 +379,17 @@ button:active {
     padding: 14px 12px;
   }
 
+  .page {
+    padding-bottom: 28px;
+  }
+
   .add-form {
     grid-template-columns: 1fr;
   }
 
   button {
     width: 100%;
+    padding: 9px 12px;
+    font-size: 15px;
   }
 }
