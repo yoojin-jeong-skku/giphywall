@@ -377,6 +377,37 @@ button:active {
     position: sticky;
     top: 0;
     padding: 14px 12px;
+    z-index: 5;
+  }
+
+  .hero.compact {
+    grid-template-columns: 1fr;
+    gap: 10px;
+    padding: 10px;
+    border-radius: 14px;
+    background: rgba(5, 6, 7, 0.92);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: var(--shadow);
+  }
+
+  .hero.compact > :not(.add-form):not(.status) {
+    display: none;
+  }
+
+  .hero.compact .add-form {
+    grid-template-columns: 1fr auto;
+    gap: 8px;
+  }
+
+  .hero.compact button {
+    width: auto;
+    padding: 7px 12px;
+  }
+
+  .hero.compact .status {
+    min-height: 0;
+    font-size: 13px;
+    margin-top: 0;
   }
 
   .page {

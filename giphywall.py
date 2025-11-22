@@ -217,10 +217,12 @@ INDEX_HTML = """<!doctype html>
     const loader = document.getElementById('loader');
     const endMarker = document.getElementById('end');
     const statusBox = document.getElementById('status');
+    const hero = document.querySelector('.hero');
     const form = document.getElementById('giphy-form');
     const input = document.getElementById('giphy-url');
     const snow = document.getElementById('snow');
     const musicButtons = document.querySelectorAll('.music-btn');
+    const mobileCompactMq = window.matchMedia('(max-width: 700px)');
 
     let offset = 0;
     const limit = 18;
@@ -348,6 +350,12 @@ INDEX_HTML = """<!doctype html>
       fetchGiphies();
     };
 
+    const updateHeroCompact = () => {
+      if (!hero) return;
+      const shouldCompact = mobileCompactMq.matches && window.scrollY > 32;
+      hero.classList.toggle('compact', shouldCompact);
+    };
+
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       const url = input.value.trim();
@@ -376,6 +384,7 @@ INDEX_HTML = """<!doctype html>
     });
 
     const onScroll = () => {
+      updateHeroCompact();
       if (reachedEnd || isLoading) return;
       const scrollSpot = window.innerHeight + window.scrollY;
       if (scrollSpot >= document.body.offsetHeight - 300) {
@@ -405,7 +414,13 @@ INDEX_HTML = """<!doctype html>
       btn.addEventListener('click', () => toggleMusic(btn.dataset.track, btn));
     });
 
+    if (mobileCompactMq.addEventListener) {
+      mobileCompactMq.addEventListener('change', updateHeroCompact);
+    } else if (mobileCompactMq.addListener) {
+      mobileCompactMq.addListener(updateHeroCompact);
+    }
     window.addEventListener('scroll', onScroll, { passive: true });
+    updateHeroCompact();
     makeSnow();
     makeSeasonalBarks();
     fetchGiphies();
